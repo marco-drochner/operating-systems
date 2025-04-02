@@ -1,9 +1,14 @@
+#include <ucontext.h>
+#include <ucontext.h>
+#include <valgrind/memcheck.h>
 #include <assert.h>
 #include <sys/types.h>
-
+#include <stdlib.h>
 #include "kfc.h"
 
 static int inited = 0;
+int numThreads = KFC_TID_MAIN;
+ucontext_t contexts[KFC_MAX_THREADS];
 
 /**
  * Initializes the kfc library.  Programs are required to call this function
@@ -20,6 +25,7 @@ kfc_init(int kthreads, int quantum_us)
 {
 	assert(!inited);
 
+	getcontext(contexts);
 	inited = 1;
 	return 0;
 }
@@ -65,6 +71,21 @@ kfc_create(tid_t *ptid, void *(*start_func)(void *), void *arg,
 		caddr_t stack_base, size_t stack_size)
 {
 	assert(inited);
+	int prevTID = numThreads;
+	*ptid = ++numThreads;
+	if (stack_size == 0) stack_size = KFC_DEF_STACK_SIZE;
+	if (stack_base == NULL) {
+		stack_base = malloc(stack_size);
+		VALGRIND_STACK_REGISTER(stack_base, stack_base + stack_size);
+	}
+
+	contexts[numThreads].uc_stack.ss_sp = stack_base;
+	contexts[numThreads].uc_stack.ss_size = stack_size;
+	contexts[numThreads].uc_link = &contexts[prevTID];
+	getcontext(&contexts[numThreads]);
+	makecontext(&contexts[numThreads], (void (*)()) start_func , 1, (long) arg);
+	int error = swapcontext(&contexts[prevTID], &contexts[numThreads]);
+	if (error) perror("Failed to swap context");
 
 	return 0;
 }
