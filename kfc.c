@@ -7,7 +7,8 @@
 #include "kfc.h"
 
 static int inited = 0;
-int numThreads = KFC_TID_MAIN;
+int numThreadsCreated = KFC_TID_MAIN;
+int currentTID = 0;
 ucontext_t contexts[KFC_MAX_THREADS];
 
 /**
@@ -29,6 +30,8 @@ kfc_init(int kthreads, int quantum_us)
 	inited = 1;
 	return 0;
 }
+
+
 
 /**
  * Cleans up any resources which were allocated by kfc_init.  You may assume
@@ -71,24 +74,44 @@ kfc_create(tid_t *ptid, void *(*start_func)(void *), void *arg,
 		caddr_t stack_base, size_t stack_size)
 {
 	assert(inited);
-	int prevTID = numThreads;
-	*ptid = ++numThreads;
+	int preCreateID = currentTID;
+	*ptid = ++numThreadsCreated;
+	DPRINTF("Creating%d\n", numThreadsCreated);
+	
 	if (stack_size == 0) stack_size = KFC_DEF_STACK_SIZE;
 	if (stack_base == NULL) {
 		stack_base = malloc(stack_size);
 		VALGRIND_STACK_REGISTER(stack_base, stack_base + stack_size);
 	}
-
-	contexts[numThreads].uc_stack.ss_sp = stack_base;
-	contexts[numThreads].uc_stack.ss_size = stack_size;
-	contexts[numThreads].uc_link = &contexts[prevTID];
-	getcontext(&contexts[numThreads]);
-	makecontext(&contexts[numThreads], (void (*)()) start_func , 1, (long) arg);
-	int error = swapcontext(&contexts[prevTID], &contexts[numThreads]);
-	if (error) perror("Failed to swap context");
-
+	contexts[numThreadsCreated].uc_stack.ss_sp = stack_base;
+	contexts[numThreadsCreated].uc_stack.ss_size = stack_size;
+	contexts[numThreadsCreated].uc_link = &contexts[preCreateID];
+	getcontext(&contexts[numThreadsCreated]);
+	
+	makecontext(&contexts[numThreadsCreated], (void (*)()) start_func , 1, (long) arg);
+	currentTID = numThreadsCreated;
+	int error = swapcontext(&contexts[preCreateID], &contexts[numThreadsCreated]);
+	DPRINTF("...swap... preCreate%d current%d\n      ", preCreateID, currentTID);
+	currentTID = preCreateID;
+	if (error) {
+		perror("Failed to swap context");
+		return -1;
+	}
+	
 	return 0;
 }
+
+
+// trampoline(void *arg)
+// {
+// 	// Call the thread function
+// 	void *(*start_func)(void *) = (void *(*)(void *)) arg;
+// 	start_func(arg);
+	
+// 	// Exit the thread
+// 	kfc_exit(NULL);
+// }
+
 
 /**
  * Exits the calling thread.  This should be the same thing that happens when
@@ -100,6 +123,8 @@ void
 kfc_exit(void *ret)
 {
 	assert(inited);
+	DPRINTF(stderr,"CurrentTID exiting: %d", currentTID);
+	
 }
 
 /**
@@ -128,13 +153,13 @@ kfc_join(tid_t tid, void **pret)
  *
  * @return Thread ID of the currently executing thread
  */
-tid_t
-kfc_self(void)
-{
-	assert(inited);
-
-	return 0;
-}
+ tid_t
+ kfc_self(void)
+ {
+	 assert(inited);
+	 DPRINTF("Test self gave %d. numThreads%d\n", currentTID, numThreadsCreated);
+	 return currentTID;
+ }
 
 /**
  * Causes the calling thread to yield the processor voluntarily.  This may
@@ -142,66 +167,66 @@ kfc_self(void)
  * possibility of the same thread continuing if re-chosen by the scheduling
  * algorithm.
  */
-void
-kfc_yield(void)
-{
-	assert(inited);
-}
-
-/**
- * Initializes a user-level counting semaphore with a specific value.
- *
- * @param sem    Pointer to the semaphore to be initialized
- * @param value  Initial value for the semaphore's counter
- *
- * @return 0 if successful, nonzero on failure
- */
-int
-kfc_sem_init(kfc_sem_t *sem, int value)
-{
-	assert(inited);
-	return 0;
-}
-
-/**
- * Increments the value of the semaphore.  This operation is also known as
- * up, signal, release, and V (Dutch verhoog, "increase").
- *
- * @param sem  Pointer to the semaphore which the thread is releasing
- *
- * @return 0 if successful, nonzero on failure
- */
-int
-kfc_sem_post(kfc_sem_t *sem)
-{
-	assert(inited);
-	return 0;
-}
-
-/**
- * Attempts to decrement the value of the semaphore.  This operation is also
- * known as down, acquire, and P (Dutch probeer, "try").  This operation should
- * block when the counter is not above 0.
- *
- * @param sem  Pointer to the semaphore which the thread wishes to acquire
- *
- * @return 0 if successful, nonzero on failure
- */
-int
-kfc_sem_wait(kfc_sem_t *sem)
-{
-	assert(inited);
-	return 0;
-}
-
-/**
- * Frees any resources associated with a semaphore.  Destroying a semaphore on
- * which threads are waiting results in undefined behavior.
- *
- * @param sem  Pointer to the semaphore to be destroyed
- */
-void
-kfc_sem_destroy(kfc_sem_t *sem)
-{
-	assert(inited);
-}
+ void
+ kfc_yield(void)
+ {
+	 assert(inited);
+ }
+ 
+ /**
+  * Initializes a user-level counting semaphore with a specific value.
+  *
+  * @param sem    Pointer to the semaphore to be initialized
+  * @param value  Initial value for the semaphore's counter
+  *
+  * @return 0 if successful, nonzero on failure
+  */
+ int
+ kfc_sem_init(kfc_sem_t *sem, int value)
+ {
+	 assert(inited);
+	 return 0;
+ }
+ 
+ /**
+  * Increments the value of the semaphore.  This operation is also known as
+  * up, signal, release, and V (Dutch verhoog, "increase").
+  *
+  * @param sem  Pointer to the semaphore which the thread is releasing
+  *
+  * @return 0 if successful, nonzero on failure
+  */
+ int
+ kfc_sem_post(kfc_sem_t *sem)
+ {
+	 assert(inited);
+	 return 0;
+ }
+ 
+ /**
+  * Attempts to decrement the value of the semaphore.  This operation is also
+  * known as down, acquire, and P (Dutch probeer, "try").  This operation should
+  * block when the counter is not above 0.
+  *
+  * @param sem  Pointer to the semaphore which the thread wishes to acquire
+  *
+  * @return 0 if successful, nonzero on failure
+  */
+ int
+ kfc_sem_wait(kfc_sem_t *sem)
+ {
+	 assert(inited);
+	 return 0;
+ }
+ 
+ /**
+  * Frees any resources associated with a semaphore.  Destroying a semaphore on
+  * which threads are waiting results in undefined behavior.
+  *
+  * @param sem  Pointer to the semaphore to be destroyed
+  */
+ void
+ kfc_sem_destroy(kfc_sem_t *sem)
+ {
+	 assert(inited);
+ }
