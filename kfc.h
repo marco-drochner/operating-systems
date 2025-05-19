@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <sys/types.h>
+#include "queue.h"
 
 #define DPRINTF(...) do { fprintf(stderr, __VA_ARGS__); } while (0)
 
@@ -19,6 +20,8 @@ typedef unsigned int tid_t;
 
 typedef struct {
 	// Put fields for semaphore here
+	int count;
+	queue_t waitQ;
 } kfc_sem_t;
 
 /**************************
